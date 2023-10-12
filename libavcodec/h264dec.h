@@ -309,6 +309,7 @@ typedef struct H264SliceContext {
 
     ///< as a DCT coefficient is int32_t in high depth, we need to reserve twice the space.
     DECLARE_ALIGNED(16, int16_t, mb)[16 * 48 * 2];
+    DECLARE_ALIGNED(16, int16_t, mb0)[16 * 48 * 2];  // P.L.
     DECLARE_ALIGNED(16, int16_t, mb_luma_dc)[3][16 * 2];
     ///< as mb is addressed by scantable[i] and scantable is uint8_t we can either
     ///< check that i is not too large or ensure that there is some unused stuff after mb
@@ -562,6 +563,7 @@ typedef struct H264Context {
     AVBufferPool *motion_val_pool;
     AVBufferPool *ref_index_pool;
     int ref2frm[MAX_SLICES][2][64];     ///< reference to frame number lists, used in the loop filter, the first 2 are for -2,-1
+    int*    BlackLine ;                      // P.L.
 } H264Context;
 
 extern const uint16_t ff_h264_mb_sizes[4];
@@ -858,5 +860,7 @@ void ff_h264_flush_change(H264Context *h);
 void ff_h264_free_tables(H264Context *h);
 
 void ff_h264_set_erpic(ERPicture *dst, H264Picture *src);
+void MbStatistics264( H264Context *h, H264SliceContext *sl, int mb_type ) ; // P.L.
+
 
 #endif /* AVCODEC_H264DEC_H */

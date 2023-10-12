@@ -1539,12 +1539,17 @@ static int decode_cabac_mb_mvd(H264SliceContext *sl, int ctxbase, int amvd, int 
     int amvd1 = sl->mvd_cache[list][scan8[n] - 1][1] +\
                 sl->mvd_cache[list][scan8[n] - 8][1];\
 \
+    sl->cabac.BitCnt = 0 ;   /* // P.L. */\
     int mxd = decode_cabac_mb_mvd(sl, 40, amvd0, &mpx);\
     int myd = decode_cabac_mb_mvd(sl, 47, amvd1, &mpy);\
     if (mxd == INT_MIN || myd == INT_MIN) \
         return AVERROR_INVALIDDATA; \
     mx += mxd;\
     my += myd;\
+    h->cur_pic_ptr->f->FrmStat.S.BitCntMotion += sl->cabac.BitCnt ; /* // P.L. */\
+    h->cur_pic_ptr->f->FrmStat.S.CodedMv++ ; /* // P.L. */\
+    mpx = (mpx > 127) ? 127 : ((mpx < -128) ? -128 : mpx) ;/* // P.L. */\
+    mpy = (mpy > 127) ? 127 : ((mpy < -128) ? -128 : mpy) ;/* // P.L. */\
 }
 
 static av_always_inline int get_cabac_cbf_ctx(H264SliceContext *sl,
@@ -2427,6 +2432,7 @@ decode_intra_mb:
             scan    = sl->qscale ? h->zigzag_scan : h->zigzag_scan_q0;
         }
 
+        sl->cabac.BitCnt = 0 ;             // P.L.
         decode_cabac_luma_residual(h, sl, scan, scan8x8, pixel_shift, mb_type, cbp, 0);
         if (CHROMA444(h)) {
             decode_cabac_luma_residual(h, sl, scan, scan8x8, pixel_shift, mb_type, cbp, 1);
@@ -2487,7 +2493,9 @@ decode_intra_mb:
     }
 
     h->cur_pic.qscale_table[mb_xy] = sl->qscale;
+    h->cur_pic_ptr->f->FrmStat.S.BitCntCoefs += sl->cabac.BitCnt ;                             // P.L.
     write_back_non_zero_count(h, sl);
 
+    memcpy( sl->mb0, sl->mb, sizeof( sl->mb ) ) ;                                             // P.L.
     return 0;
 }
