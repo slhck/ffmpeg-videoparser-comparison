@@ -282,7 +282,7 @@ void av_free_packet(AVPacket *pkt)
 {
     if (pkt) {
         if (pkt->buf)
-            av_buffer_unref(&pkt->buf);
+           av_buffer_unref(&pkt->buf);
         pkt->data            = NULL;
         pkt->size            = 0;
 

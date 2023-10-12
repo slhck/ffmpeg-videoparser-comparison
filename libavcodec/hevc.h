@@ -676,6 +676,7 @@ typedef struct Mv {
 
 typedef struct MvField {
     DECLARE_ALIGNED(4, Mv, mv)[2];
+    DECLARE_ALIGNED(4, Mv, mvd)[2];  //  P.L.
     int8_t ref_idx[2];
     int8_t pred_flag;
 } MvField;
@@ -930,7 +931,6 @@ typedef struct HEVCContext {
     uint16_t white_point[2];
     uint32_t max_mastering_luminance;
     uint32_t min_mastering_luminance;
-
 } HEVCContext;
 
 int ff_hevc_decode_short_term_rps(GetBitContext *gb, AVCodecContext *avctx,
@@ -1070,6 +1070,13 @@ int ff_hevc_encode_nal_vps(HEVCVPS *vps, unsigned int id,
  *
  * @param s HEVCContext.
  */
+void  CoefStatisticsHEVC( HEVCContext* Ctx, int log_size, int16_t* coeffs, int c_idx ) ;     // P.L.
+int   GetCodingTypeHEVC ( HEVCLocalContext* lc, MvField* MvFld, int FrameType) ;             // P.L.
+void  InitStatisticsHEVC( HEVCContext* Ctx ) ;                                               // P.L.
+void  TransfStatHEVC( HEVCContext* s, int log2_trafo_size, int cbf_luma, int y0, int x0 ) ;  // P.L.
+void  MbStatistcsHEVC( HEVCContext* s, HEVCLocalContext* lc, int y0, int x0, int cb_size ) ; // P.L.
+int   BlackBorderEstimationHEVC( uint8_t* cbf_luma, HEVCSPS* sps, int FrameType, int PrevBlackBorder ) ;   // P.L.
+
 void ff_hevc_reset_sei(HEVCContext *s);
 
 extern const uint8_t ff_hevc_qpel_extra_before[4];

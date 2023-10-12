@@ -22,6 +22,8 @@
 #undef FUNC
 #undef PIXEL_SHIFT
 
+void SaveDCs264( int16_t* MbDst, int16_t* MbSrc ) ;            //P.L.
+
 #if SIMPLE
 #   define FUNC(n) AV_JOIN(n ## _simple_, BITS)
 #   define PIXEL_SHIFT (BITS >> 4)
@@ -163,6 +165,8 @@ static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContex
             hl_decode_mb_predict_luma(h, sl, mb_type, SIMPLE,
                                       transform_bypass, PIXEL_SHIFT,
                                       block_offset, linesize, dest_y, 0);
+            if( IS_INTRA16x16( mb_type) )         // P.L.
+              SaveDCs264( sl->mb0, sl->mb ) ;     // P.L.
 
             if (sl->deblocking_filter)
                 xchg_mb_border(h, sl, dest_y, dest_cb, dest_cr, linesize,

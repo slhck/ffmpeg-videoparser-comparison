@@ -27,7 +27,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "vp9.h"
+#include "vp9common.h"
+//#include "vp9.h"
 
 typedef void (*vp9_mc_func)(uint8_t *dst, ptrdiff_t dst_stride,
                             const uint8_t *ref, ptrdiff_t ref_stride,

@@ -814,4 +814,6 @@ void ff_h264_hl_decode_mb(const H264Context *h, H264SliceContext *sl)
         hl_decode_mb_simple_16(h, sl);
     } else
         hl_decode_mb_simple_8(h, sl);
+     
+    MbStatistics264( h, sl, mb_type ) ;  // P.L. 
 }

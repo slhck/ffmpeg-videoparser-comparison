@@ -57,8 +57,8 @@ void ff_h264_unref_picture(H264Context *h, H264Picture *pic)
     av_buffer_unref(&pic->qscale_table_buf);
     av_buffer_unref(&pic->mb_type_buf);
     for (i = 0; i < 2; i++) {
-        av_buffer_unref(&pic->motion_val_buf[i]);
-        av_buffer_unref(&pic->ref_index_buf[i]);
+      av_buffer_unref( &pic->motion_val_buf[i] );
+      av_buffer_unref( &pic->ref_index_buf[i] );
     }
 
     memset((uint8_t*)pic + off, 0, sizeof(*pic) - off);
@@ -79,7 +79,7 @@ int ff_h264_ref_picture(H264Context *h, H264Picture *dst, H264Picture *src)
 
     dst->qscale_table_buf = av_buffer_ref(src->qscale_table_buf);
     dst->mb_type_buf      = av_buffer_ref(src->mb_type_buf);
-    if (!dst->qscale_table_buf || !dst->mb_type_buf)
+    if (!dst->qscale_table_buf || !dst->mb_type_buf )
         goto fail;
     dst->qscale_table = src->qscale_table;
     dst->mb_type      = src->mb_type;
@@ -89,8 +89,8 @@ int ff_h264_ref_picture(H264Context *h, H264Picture *dst, H264Picture *src)
         dst->ref_index_buf[i]  = av_buffer_ref(src->ref_index_buf[i]);
         if (!dst->motion_val_buf[i] || !dst->ref_index_buf[i])
             goto fail;
-        dst->motion_val[i] = src->motion_val[i];
-        dst->ref_index[i]  = src->ref_index[i];
+        dst->motion_val[i]          = src->motion_val[i];
+        dst->ref_index[i]           = src->ref_index[i];
     }
 
     if (src->hwaccel_picture_private) {

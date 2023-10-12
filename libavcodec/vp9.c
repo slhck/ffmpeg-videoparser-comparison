@@ -33,136 +33,15 @@
 #include "vp9dsp.h"
 #include "libavutil/avassert.h"
 #include "libavutil/pixdesc.h"
+#include "libavutil/thread.h"
 
 #define VP9_SYNCCODE 0x498342
 
-struct VP9Filter {
-    uint8_t level[8 * 8];
-    uint8_t /* bit=col */ mask[2 /* 0=y, 1=uv */][2 /* 0=col, 1=row */]
-                              [8 /* rows */][4 /* 0=16, 1=8, 2=4, 3=inner4 */];
-};
-
-typedef struct VP9Block {
-    uint8_t seg_id, intra, comp, ref[2], mode[4], uvmode, skip;
-    enum FilterMode filter;
-    VP56mv mv[4 /* b_idx */][2 /* ref */];
-    enum BlockSize bs;
-    enum TxfmMode tx, uvtx;
-    enum BlockLevel bl;
-    enum BlockPartition bp;
-} VP9Block;
-
-typedef struct VP9Context {
-    VP9SharedContext s;
-
-    VP9DSPContext dsp;
-    VideoDSPContext vdsp;
-    GetBitContext gb;
-    VP56RangeCoder c;
-    VP56RangeCoder *c_b;
-    unsigned c_b_size;
-    VP9Block *b_base, *b;
-    int pass;
-    int row, row7, col, col7;
-    uint8_t *dst[3];
-    ptrdiff_t y_stride, uv_stride;
-
-    uint8_t ss_h, ss_v;
-    uint8_t last_bpp, bpp, bpp_index, bytesperpixel;
-    uint8_t last_keyframe;
-    // sb_cols/rows, rows/cols and last_fmt are used for allocating all internal
-    // arrays, and are thus per-thread. w/h and gf_fmt are synced between threads
-    // and are therefore per-stream. pix_fmt represents the value in the header
-    // of the currently processed frame.
-    int w, h;
-    enum AVPixelFormat pix_fmt, last_fmt, gf_fmt;
-    unsigned sb_cols, sb_rows, rows, cols;
-    ThreadFrame next_refs[8];
-
-    struct {
-        uint8_t lim_lut[64];
-        uint8_t mblim_lut[64];
-    } filter_lut;
-    unsigned tile_row_start, tile_row_end, tile_col_start, tile_col_end;
-    struct {
-        prob_context p;
-        uint8_t coef[4][2][2][6][6][3];
-    } prob_ctx[4];
-    struct {
-        prob_context p;
-        uint8_t coef[4][2][2][6][6][11];
-    } prob;
-    struct {
-        unsigned y_mode[4][10];
-        unsigned uv_mode[10][10];
-        unsigned filter[4][3];
-        unsigned mv_mode[7][4];
-        unsigned intra[4][2];
-        unsigned comp[5][2];
-        unsigned single_ref[5][2][2];
-        unsigned comp_ref[5][2];
-        unsigned tx32p[2][4];
-        unsigned tx16p[2][3];
-        unsigned tx8p[2][2];
-        unsigned skip[3][2];
-        unsigned mv_joint[4];
-        struct {
-            unsigned sign[2];
-            unsigned classes[11];
-            unsigned class0[2];
-            unsigned bits[10][2];
-            unsigned class0_fp[2][4];
-            unsigned fp[4];
-            unsigned class0_hp[2];
-            unsigned hp[2];
-        } mv_comp[2];
-        unsigned partition[4][4][4];
-        unsigned coef[4][2][2][6][6][3];
-        unsigned eob[4][2][2][6][6][2];
-    } counts;
-
-    // contextual (left/above) cache
-    DECLARE_ALIGNED(16, uint8_t, left_y_nnz_ctx)[16];
-    DECLARE_ALIGNED(16, uint8_t, left_mode_ctx)[16];
-    DECLARE_ALIGNED(16, VP56mv, left_mv_ctx)[16][2];
-    DECLARE_ALIGNED(16, uint8_t, left_uv_nnz_ctx)[2][16];
-    DECLARE_ALIGNED(8, uint8_t, left_partition_ctx)[8];
-    DECLARE_ALIGNED(8, uint8_t, left_skip_ctx)[8];
-    DECLARE_ALIGNED(8, uint8_t, left_txfm_ctx)[8];
-    DECLARE_ALIGNED(8, uint8_t, left_segpred_ctx)[8];
-    DECLARE_ALIGNED(8, uint8_t, left_intra_ctx)[8];
-    DECLARE_ALIGNED(8, uint8_t, left_comp_ctx)[8];
-    DECLARE_ALIGNED(8, uint8_t, left_ref_ctx)[8];
-    DECLARE_ALIGNED(8, uint8_t, left_filter_ctx)[8];
-    uint8_t *above_partition_ctx;
-    uint8_t *above_mode_ctx;
-    // FIXME maybe merge some of the below in a flags field?
-    uint8_t *above_y_nnz_ctx;
-    uint8_t *above_uv_nnz_ctx[2];
-    uint8_t *above_skip_ctx; // 1bit
-    uint8_t *above_txfm_ctx; // 2bit
-    uint8_t *above_segpred_ctx; // 1bit
-    uint8_t *above_intra_ctx; // 1bit
-    uint8_t *above_comp_ctx; // 1bit
-    uint8_t *above_ref_ctx; // 2bit
-    uint8_t *above_filter_ctx;
-    VP56mv (*above_mv_ctx)[2];
-
-    // whole-frame cache
-    uint8_t *intra_pred_data[3];
-    struct VP9Filter *lflvl;
-    DECLARE_ALIGNED(32, uint8_t, edge_emu_buffer)[135 * 144 * 2];
-
-    // block reconstruction intermediates
-    int block_alloc_using_2pass;
-    int16_t *block_base, *block, *uvblock_base[2], *uvblock[2];
-    uint8_t *eob_base, *uveob_base[2], *eob, *uveob[2];
-    struct { int x, y; } min_mv, max_mv;
-    DECLARE_ALIGNED(32, uint8_t, tmp_y)[64 * 64 * 2];
-    DECLARE_ALIGNED(32, uint8_t, tmp_uv)[2][64 * 64 * 2];
-    uint16_t mvscale[3][2];
-    uint8_t mvstep[3][2];
-} VP9Context;
+// A.S.
+extern void ModeStatistics (VP9Context *s, VIDEO_STAT *stats, int row, int col, int bytesperpixel );
+void InitFrameStatisticsVP9( AVCodecContext* ctx, VIDEO_STAT* FrmStat, VIDEO_STAT* FrmStatRef, AVPacket* pkt) ;
+extern void FrameStatistics(AVCodecContext* ctx, VIDEO_STAT* stats, VIDEO_STAT* statsRef, AVPacket* pkt);
+static AVMutex stat_mutex;
 
 static const uint8_t bwh_tab[2][N_BS_SIZES][2] = {
     {
@@ -338,7 +217,7 @@ static int update_size(AVCodecContext *ctx, int w, int h)
 static int update_block_buffers(AVCodecContext *ctx)
 {
     VP9Context *s = ctx->priv_data;
-    int chroma_blocks, chroma_eobs, bytesperpixel = s->bytesperpixel;
+    int             chroma_blocks, chroma_eobs, bytesperpixel = s->bytesperpixel;
 
     if (s->b_base && s->block_base && s->block_alloc_using_2pass == s->s.frames[CUR_FRAME].uses_2pass)
         return 0;
@@ -1307,17 +1186,16 @@ static av_always_inline int read_mv_component(VP9Context *s, int idx, int hp)
     return sign ? -(n + 1) : (n + 1);
 }
 
-static void fill_mv(VP9Context *s,
-                    VP56mv *mv, int mode, int sb)
+static void fill_mv(VP9Context *s, VP56mv *mv, VP56mv *mvd, int mode, int sb)
 {
     VP9Block *b = s->b;
 
     if (mode == ZEROMV) {
-        AV_ZERO64(mv);
-    } else {
+      AV_ZERO64(mv);
+      } else {
         int hp;
 
-        // FIXME cache this value and reuse for other subblocks
+                                     // FIXME cache this value and reuse for other subblocks
         find_ref_mvs(s, &mv[0], b->ref[0], 0, mode == NEARMV,
                      mode == NEWMV ? -1 : sb);
         // FIXME maybe move this code into find_ref_mvs()
@@ -1341,44 +1219,66 @@ static void fill_mv(VP9Context *s,
                                               s->prob.p.mv_joint);
 
             s->counts.mv_joint[j]++;
-            if (j >= MV_JOINT_V)
-                mv[0].y += read_mv_component(s, 0, hp);
-            if (j & 1)
-                mv[0].x += read_mv_component(s, 1, hp);
+
+            b->CodedMv[(sb == -1)? 0:sb] += (int)(j != MV_JOINT_ZERO) ;      //  P.L.
+            if( j >= MV_JOINT_V )
+              {
+              mvd[0].y    = read_mv_component( s, 0, hp );
+              mv[0].y    += mvd[0].y ;                           //  P.L.
+              } ;
+            if( j & 1 )
+              {
+              mvd[0].x    = read_mv_component( s, 1, hp );
+              mv[0].x    += mvd[0].x ;                           //  P.L.
+              } ;
         }
 
-        if (b->comp) {
-            // FIXME cache this value and reuse for other subblocks
-            find_ref_mvs(s, &mv[1], b->ref[1], 1, mode == NEARMV,
-                         mode == NEWMV ? -1 : sb);
-            if ((mode == NEWMV || sb == -1) &&
-                !(hp = s->s.h.highprecisionmvs && abs(mv[1].x) < 64 && abs(mv[1].y) < 64)) {
-                if (mv[1].y & 1) {
-                    if (mv[1].y < 0)
-                        mv[1].y++;
-                    else
-                        mv[1].y--;
-                }
-                if (mv[1].x & 1) {
-                    if (mv[1].x < 0)
-                        mv[1].x++;
-                    else
-                        mv[1].x--;
-                }
+        if( b->comp )
+          {
+// FIXME cache this value and reuse for other subblocks
+          find_ref_mvs( s, &mv[1], b->ref[1], 1, mode == NEARMV,
+            mode == NEWMV ? -1 : sb );
+          if( (mode == NEWMV || sb == -1) &&
+            !(hp = s->s.h.highprecisionmvs && abs( mv[1].x ) < 64 && abs( mv[1].y ) < 64) )
+            {
+            if( mv[1].y & 1 )
+              {
+              if( mv[1].y < 0 )
+                mv[1].y++;
+              else
+                mv[1].y--;
+              }
+            if( mv[1].x & 1 )
+              {
+              if( mv[1].x < 0 )
+                mv[1].x++;
+              else
+                mv[1].x--;
+              }
             }
-            if (mode == NEWMV) {
-                enum MVJoint j = vp8_rac_get_tree(&s->c, vp9_mv_joint_tree,
-                                                  s->prob.p.mv_joint);
+          if( mode == NEWMV )
+            {
+            enum MVJoint j = vp8_rac_get_tree( &s->c, vp9_mv_joint_tree,
+              s->prob.p.mv_joint );
 
-                s->counts.mv_joint[j]++;
-                if (j >= MV_JOINT_V)
-                    mv[1].y += read_mv_component(s, 0, hp);
-                if (j & 1)
-                    mv[1].x += read_mv_component(s, 1, hp);
-            }
-        }
+            s->counts.mv_joint[j]++;
+
+            b->CodedMv[(sb == -1)? 0:sb] += (int)(j != MV_JOINT_ZERO) ;  //  P.L.
+            if( j >= MV_JOINT_V )
+              {
+              mvd[1].y = read_mv_component( s, 0, hp );
+              mv[1].y     += mvd[1].y ;                      //  P.L.
+
+              }
+            if( j & 1 )
+              {
+              mvd[1].x += read_mv_component( s, 1, hp );
+              mv[1].x      += mvd[1].x ;                     //  P.L.
+              } ;
+            } ;
+          } ;
     }
-}
+  }
 
 static av_always_inline void setctx_2d(uint8_t *ptr, int w, int h,
                                        ptrdiff_t stride, int v)
@@ -1952,58 +1852,75 @@ static void decode_mode(AVCodecContext *ctx)
             b->filter = s->s.h.filtermode;
         }
 
+        memset( b->mvd,     0, sizeof( b->mvd     ) ) ;   //  P.L.
+        memset( b->CodedMv, 0, sizeof( b->CodedMv ) ) ;   //  P.L.
         if (b->bs > BS_8x8) {
             int c = inter_mode_ctx_lut[s->above_mode_ctx[col]][s->left_mode_ctx[row7]];
 
             b->mode[0] = vp8_rac_get_tree(&s->c, vp9_inter_mode_tree,
                                           s->prob.p.mv_mode[c]);
             s->counts.mv_mode[c][b->mode[0] - 10]++;
-            fill_mv(s, b->mv[0], b->mode[0], 0);
+            fill_mv(s, b->mv[0], b->mvd[0], b->mode[0], 0);           // P.L. added b->mvd
 
             if (b->bs != BS_8x4) {
                 b->mode[1] = vp8_rac_get_tree(&s->c, vp9_inter_mode_tree,
                                               s->prob.p.mv_mode[c]);
                 s->counts.mv_mode[c][b->mode[1] - 10]++;
-                fill_mv(s, b->mv[1], b->mode[1], 1);
+                fill_mv(s, b->mv[1], b->mvd[1], b->mode[1], 1);       // P.L. added b->mvd
             } else {
                 b->mode[1] = b->mode[0];
-                AV_COPY32(&b->mv[1][0], &b->mv[0][0]);
-                AV_COPY32(&b->mv[1][1], &b->mv[0][1]);
-            }
+                AV_COPY32(&b->mv[1][0],  &b->mv[0][0]);
+                AV_COPY32(&b->mv[1][1],  &b->mv[0][1]);
+                AV_COPY32(&b->mvd[1][0], &b->mvd[0][0]);   //  P.L.
+                AV_COPY32(&b->mvd[1][1], &b->mvd[0][1]);   //  P.L.
+              }
 
             if (b->bs != BS_4x8) {
                 b->mode[2] = vp8_rac_get_tree(&s->c, vp9_inter_mode_tree,
                                               s->prob.p.mv_mode[c]);
                 s->counts.mv_mode[c][b->mode[2] - 10]++;
-                fill_mv(s, b->mv[2], b->mode[2], 2);
+                fill_mv(s, b->mv[2], b->mvd[2], b->mode[2], 2);
 
                 if (b->bs != BS_8x4) {
                     b->mode[3] = vp8_rac_get_tree(&s->c, vp9_inter_mode_tree,
                                                   s->prob.p.mv_mode[c]);
                     s->counts.mv_mode[c][b->mode[3] - 10]++;
-                    fill_mv(s, b->mv[3], b->mode[3], 3);
+                    fill_mv(s, b->mv[3], b->mvd[3], b->mode[3], 3);
                 } else {
                     b->mode[3] = b->mode[2];
-                    AV_COPY32(&b->mv[3][0], &b->mv[2][0]);
-                    AV_COPY32(&b->mv[3][1], &b->mv[2][1]);
-                }
+                    AV_COPY32(&b->mv[3][0],  &b->mv[2][0]);
+                    AV_COPY32(&b->mv[3][1],  &b->mv[2][1]);
+                    AV_COPY32(&b->mvd[3][0], &b->mvd[2][0]);   //  P.L.
+                    AV_COPY32(&b->mvd[3][1], &b->mvd[2][1]);   //  P.L.
+                  }
             } else {
                 b->mode[2] = b->mode[0];
-                AV_COPY32(&b->mv[2][0], &b->mv[0][0]);
-                AV_COPY32(&b->mv[2][1], &b->mv[0][1]);
+                AV_COPY32(&b->mv[2][0],  &b->mv[0][0]);
+                AV_COPY32(&b->mv[2][1],  &b->mv[0][1]);
+                AV_COPY32(&b->mvd[2][0], &b->mvd[0][0]);   //  P.L.
+                AV_COPY32(&b->mvd[2][1], &b->mvd[0][1]);   //  P.L.
                 b->mode[3] = b->mode[1];
-                AV_COPY32(&b->mv[3][0], &b->mv[1][0]);
-                AV_COPY32(&b->mv[3][1], &b->mv[1][1]);
-            }
+                AV_COPY32(&b->mv[3][0],  &b->mv[1][0]);
+                AV_COPY32(&b->mv[3][1],  &b->mv[1][1]);
+                AV_COPY32(&b->mvd[3][0], &b->mvd[1][0]);   //  P.L.
+                AV_COPY32(&b->mvd[3][1], &b->mvd[1][1]);   //  P.L.
+              }
         } else {
-            fill_mv(s, b->mv[0], b->mode[0], -1);
+            fill_mv(s, b->mv[0], b->mvd[0], b->mode[0], -1);
             AV_COPY32(&b->mv[1][0], &b->mv[0][0]);
             AV_COPY32(&b->mv[2][0], &b->mv[0][0]);
             AV_COPY32(&b->mv[3][0], &b->mv[0][0]);
             AV_COPY32(&b->mv[1][1], &b->mv[0][1]);
             AV_COPY32(&b->mv[2][1], &b->mv[0][1]);
             AV_COPY32(&b->mv[3][1], &b->mv[0][1]);
-        }
+
+            AV_COPY32(&b->mvd[1][0], &b->mvd[0][0]);   //  P.L.
+            AV_COPY32(&b->mvd[2][0], &b->mvd[0][0]);   //  P.L.
+            AV_COPY32(&b->mvd[3][0], &b->mvd[0][0]);   //  P.L.
+            AV_COPY32(&b->mvd[1][1], &b->mvd[0][1]);   //  P.L.
+            AV_COPY32(&b->mvd[2][1], &b->mvd[0][1]);   //  P.L.
+            AV_COPY32(&b->mvd[3][1], &b->mvd[0][1]);   //  P.L.
+          }
 
         vref = b->ref[b->comp ? s->s.h.signbias[s->s.h.varcompref[0]] : 0];
     }
@@ -3197,6 +3114,8 @@ static void decode_b(AVCodecContext *ctx, int row, int col,
     int w4 = bwh_tab[1][bs][0], h4 = bwh_tab[1][bs][1], lvl;
     int emu[2];
     AVFrame *f = s->s.frames[CUR_FRAME].tf.f;
+    
+    s->s.frames[0].tf.f->FrmStat.S.BlkCnt4x4 += 256 >> ( (((bs -(bp==3)) / 3) << 1) + ((bp == 1) || (bp == 2))) ;  // P.L.
 
     s->row = row;
     s->row7 = row & 7;
@@ -3263,6 +3182,17 @@ static void decode_b(AVCodecContext *ctx, int row, int col,
             case 8: SPLAT_ZERO_YUV(left, nnz_ctx, row7, 8, v); break;
             }
         }
+
+        // A.S.
+#if HAVE_THREADS
+        ff_mutex_lock(&stat_mutex);
+#endif
+
+        ModeStatistics(s, &f->FrmStat, row, col, bytesperpixel );    // A.S. 
+
+#if HAVE_THREADS
+        ff_mutex_unlock(&stat_mutex);
+#endif
 
         if (s->pass == 1) {
             s->b++;
@@ -3439,14 +3369,16 @@ static void decode_sb(AVCodecContext *ctx, int row, int col, struct VP9Filter *l
             }
         } else if (vp56_rac_get_prob_branchy(&s->c, p[1])) {
             bp = PARTITION_SPLIT;
+            s->s.frames[0].tf.f->FrmStat.S.BlkCnt4x4 += 2 * (1 << (3-bl)) *  (1 << (3-bl)) ;   // P.L.
             decode_sb(ctx, row, col, lflvl, yoff, uvoff, bl + 1);
             decode_sb(ctx, row, col + hbs, lflvl,
                       yoff + 8 * hbs * bytesperpixel,
                       uvoff + (8 * hbs * bytesperpixel >> s->ss_h), bl + 1);
         } else {
             bp = PARTITION_H;
+            s->s.frames[0].tf.f->FrmStat.S.BlkCnt4x4 += ((1 << (4 - bl))  *  (1 << (4 - bl))) >> 1  ;  // P.L.
             decode_b(ctx, row, col, lflvl, yoff, uvoff, bl, bp);
-        }
+          }
     } else if (row + hbs < s->rows) { // FIXME why not <=?
         if (vp56_rac_get_prob_branchy(&s->c, p[2])) {
             bp = PARTITION_SPLIT;
@@ -3968,6 +3900,10 @@ static av_cold int vp9_decode_free(AVCodecContext *ctx)
     av_freep(&s->c_b);
     s->c_b_size = 0;
 
+#if HAVE_THREADS
+    ff_mutex_destroy(&stat_mutex); // A.S.
+#endif
+
     return 0;
 }
 
@@ -4042,6 +3978,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
         vp9_unref_frame(ctx, &s->s.frames[REF_FRAME_SEGMAP]);
     }
 
+   InitFrameStatisticsVP9( ctx, &(s->s.frames[0].tf.f->FrmStat), &((AVFrame *)frame)->FrmStat,  pkt ) ;             // P.L.
     // ref frame setup
     for (i = 0; i < 8; i++) {
         if (s->next_refs[i].f->buf[0])
@@ -4068,6 +4005,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
         goto finish;
     }
 
+ 
     // main tile decode loop
     bytesperpixel = s->bytesperpixel;
     memset(s->above_partition_ctx, 0, s->cols);
@@ -4240,6 +4178,9 @@ FF_ENABLE_DEPRECATION_WARNINGS
     ff_thread_report_progress(&s->s.frames[CUR_FRAME].tf, INT_MAX, 0);
 
 finish:
+    // A.S. - Finalize stats, Copy stats to ctx, Clear stats
+    FrameStatistics(ctx, &s->s.frames[0].tf.f->FrmStat, &((AVFrame *)frame)->FrmStat, pkt);
+
     // ref frame setup
     for (i = 0; i < 8; i++) {
         if (s->s.refs[i].f->buf[0])
@@ -4250,10 +4191,13 @@ finish:
     }
 
     if (!s->s.h.invisible) {
-        if ((res = av_frame_ref(frame, s->s.frames[CUR_FRAME].tf.f)) < 0)
-            return res;
-        *got_frame = 1;
-    }
+      if( (res = av_frame_ref( frame, s->s.frames[CUR_FRAME].tf.f )) < 0 )
+        return res;
+      *got_frame = 1;
+      }
+    else
+      ((AVFrame *)frame)->FrmStat.IsHidden = 1 ;          // P.L.
+
 
     return pkt->size;
 }
@@ -4290,7 +4234,7 @@ static int init_frames(AVCodecContext *ctx)
             av_log(ctx, AV_LOG_ERROR, "Failed to allocate frame buffer %d\n", i);
             return AVERROR(ENOMEM);
         }
-    }
+      }
 
     return 0;
 }
@@ -4302,6 +4246,10 @@ static av_cold int vp9_decode_init(AVCodecContext *ctx)
     ctx->internal->allocate_progress = 1;
     s->last_bpp = 0;
     s->s.h.filter.sharpness = -1;
+
+#if HAVE_THREADS
+    ff_mutex_init(&stat_mutex, NULL); // A.S.
+#endif
 
     return init_frames(ctx);
 }
