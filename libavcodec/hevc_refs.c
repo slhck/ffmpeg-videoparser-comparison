@@ -98,7 +98,7 @@ static HEVCFrame *alloc_frame(HEVCContext *s)
         frame->tab_mvf_buf = av_buffer_pool_get(s->tab_mvf_pool);
         if (!frame->tab_mvf_buf)
             goto fail;
-        frame->tab_mvf = (MvField *)frame->tab_mvf_buf->data;
+        frame->tab_mvf      = (MvField *)frame->tab_mvf_buf->data;
 
         frame->rpl_tab_buf = av_buffer_pool_get(s->rpl_tab_pool);
         if (!frame->rpl_tab_buf)

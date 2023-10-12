@@ -26,9 +26,9 @@
 #ifndef AVUTIL_INTERNAL_H
 #define AVUTIL_INTERNAL_H
 
-#if !defined(DEBUG) && !defined(NDEBUG)
-#    define NDEBUG
-#endif
+//#if !defined(DEBUG) && !defined(NDEBUG)
+//#    define NDEBUG
+//#endif
 
 // This can be enabled to allow detection of additional integer overflows with ubsan
 //#define CHECKED
@@ -354,5 +354,6 @@ void ff_check_pixfmt_descriptors(void);
 int avpriv_dict_set_timestamp(AVDictionary **dict, const char *key, int64_t timestamp);
 
 extern const uint8_t ff_reverse[256];
+extern int CurrBlackBorder ;              //   P.L.    
 
 #endif /* AVUTIL_INTERNAL_H */

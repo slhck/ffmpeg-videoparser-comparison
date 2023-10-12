@@ -119,7 +119,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
     frame->color_range         = AVCOL_RANGE_UNSPECIFIED;
     frame->chroma_location     = AVCHROMA_LOC_UNSPECIFIED;
     frame->flags               = 0;
-}
+  }
 
 static void free_side_data(AVFrameSideData **ptr_sd)
 {
@@ -320,6 +320,8 @@ FF_ENABLE_DEPRECATION_WARNINGS
     dst->colorspace             = src->colorspace;
     dst->color_range            = src->color_range;
     dst->chroma_location        = src->chroma_location;
+    memcpy( &(dst->FrmStat),   &(src->FrmStat),   sizeof( VIDEO_STAT ) ) ;    // P.L.
+    memcpy( &(dst->FrmStat.S), &(src->FrmStat.S), sizeof( FRAME_SUMS ) ) ;    // P.L.
 
     av_dict_copy(&dst->metadata, src->metadata, 0);
 
@@ -469,7 +471,8 @@ int av_frame_ref(AVFrame *dst, const AVFrame *src)
 
     memcpy(dst->data,     src->data,     sizeof(src->data));
     memcpy(dst->linesize, src->linesize, sizeof(src->linesize));
-
+    memcpy( &dst->FrmStat,   &src->FrmStat,   sizeof( VIDEO_STAT ) ) ;    // P.L.
+    memcpy( &dst->FrmStat.S, &src->FrmStat.S, sizeof( FRAME_SUMS ) ) ;    // P.L.
     return 0;
 
 fail:
@@ -688,7 +691,8 @@ static int frame_copy_video(AVFrame *dst, const AVFrame *src)
     av_image_copy(dst->data, dst->linesize,
                   src_data, src->linesize,
                   dst->format, src->width, src->height);
-
+    memcpy( &dst->FrmStat,   &src->FrmStat,   sizeof(VIDEO_STAT) ) ;    // P.L.
+    memcpy( &dst->FrmStat.S, &src->FrmStat.S, sizeof(FRAME_SUMS) ) ;    // P.L.
     return 0;
 }
 

@@ -47,6 +47,10 @@
 #include "rectangle.h"
 #include "thread.h"
 
+void InitFrameStatistics264( H264Context *h, H264SliceContext* sl, int CurrBlackBorder ) ;   // P.L.
+int BlackborderDetect( int* BlackLine, int rows, int threshold, int logBlkSize ) ;           // P.L.
+
+
 static const uint8_t field_scan[16+1] = {
     0 + 0 * 4, 0 + 1 * 4, 1 + 0 * 4, 0 + 2 * 4,
     0 + 3 * 4, 1 + 1 * 4, 1 + 2 * 4, 1 + 3 * 4,
@@ -166,14 +170,12 @@ static int init_table_pools(H264Context *h)
 
     h->qscale_table_pool = av_buffer_pool_init(big_mb_num + h->mb_stride,
                                                av_buffer_allocz);
-    h->mb_type_pool      = av_buffer_pool_init((big_mb_num + h->mb_stride) *
-                                               sizeof(uint32_t), av_buffer_allocz);
-    h->motion_val_pool   = av_buffer_pool_init(2 * (b4_array_size + 4) *
-                                               sizeof(int16_t), av_buffer_allocz);
+    h->mb_type_pool      = av_buffer_pool_init((big_mb_num  +  h->mb_stride    ) * sizeof(uint32_t), av_buffer_allocz);
+
+    h->motion_val_pool   = av_buffer_pool_init(2 * (b4_array_size + 4) * sizeof(int16_t), av_buffer_allocz);
     h->ref_index_pool    = av_buffer_pool_init(4 * mb_array_size, av_buffer_allocz);
 
-    if (!h->qscale_table_pool || !h->mb_type_pool || !h->motion_val_pool ||
-        !h->ref_index_pool) {
+    if (!h->qscale_table_pool || !h->mb_type_pool || !h->motion_val_pool  || !h->ref_index_pool) {
         av_buffer_pool_uninit(&h->qscale_table_pool);
         av_buffer_pool_uninit(&h->mb_type_pool);
         av_buffer_pool_uninit(&h->motion_val_pool);
@@ -238,14 +240,14 @@ static int alloc_picture(H264Context *h, H264Picture *pic)
     pic->qscale_table = pic->qscale_table_buf->data + 2 * h->mb_stride + 1;
 
     for (i = 0; i < 2; i++) {
-        pic->motion_val_buf[i] = av_buffer_pool_get(h->motion_val_pool);
-        pic->ref_index_buf[i]  = av_buffer_pool_get(h->ref_index_pool);
-        if (!pic->motion_val_buf[i] || !pic->ref_index_buf[i])
+        pic->motion_val_buf[i]     = av_buffer_pool_get(h->motion_val_pool);
+        pic->ref_index_buf[i]      = av_buffer_pool_get(h->ref_index_pool);
+        if (!pic->motion_val_buf[i] || !pic->ref_index_buf[i]) 
             goto fail;
 
         pic->motion_val[i] = (int16_t (*)[2])pic->motion_val_buf[i]->data + 4;
         pic->ref_index[i]  = pic->ref_index_buf[i]->data;
-    }
+      }
 
     return 0;
 fail:
@@ -560,6 +562,7 @@ static int h264_frame_start(H264Context *h)
     h->mb_aff_frame = h->ps.sps->mb_aff && (h->picture_structure == PICT_FRAME);
 
     assert(h->cur_pic_ptr->long_ref == 0);
+
 
     return 0;
 }
@@ -2411,6 +2414,7 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
         }
     }
 
+    InitFrameStatistics264( h, sl, CurrBlackBorder ) ;   // P.L. 
     if (h->ps.pps->cabac) {
         /* realign */
         align_get_bits(&sl->gb);
@@ -2428,9 +2432,9 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
             // START_TIMER
             int ret, eos;
             if (sl->mb_x + sl->mb_y * h->mb_width >= sl->next_slice_idx) {
-                av_log(h->avctx, AV_LOG_ERROR, "Slice overlaps with next at %d\n",
+                av_log(h->avctx, AV_LOG_ERROR, "Slice overlaps with next at %d\n", 
                        sl->next_slice_idx);
-                er_add_slice(sl, sl->resync_mb_x, sl->resync_mb_y, sl->mb_x,
+                er_add_slice(sl, sl->resync_mb_x, sl->resync_mb_y, sl->mb_x, 
                              sl->mb_y, ER_MB_ERROR);
                 return AVERROR_INVALIDDATA;
             }
@@ -2582,6 +2586,10 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
 
 finish:
     sl->deblocking_filter = orig_deblock;
+
+    if( h->cur_pic_ptr->f->pict_type == AV_PICTURE_TYPE_I )                                                                                      // P.L.
+      h->cur_pic_ptr->f->FrmStat.BlackBorder = CurrBlackBorder = BlackborderDetect( h->BlackLine, h->mb_height, (int)(0.8*h->mb_width), 4 ) ;  // P.L.
+
     return 0;
 }
 

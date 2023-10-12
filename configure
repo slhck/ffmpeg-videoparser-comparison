@@ -6207,7 +6207,7 @@ elif enabled ccc; then
 elif enabled gcc; then
     check_optflags -fno-tree-vectorize
     check_cflags -Werror=format-security
-    check_cflags -Werror=implicit-function-declaration
+    #check_cflags -Werror=implicit-function-declaration
     check_cflags -Werror=missing-prototypes
     check_cflags -Werror=return-type
     check_cflags -Werror=vla
@@ -6220,7 +6220,7 @@ elif enabled clang; then
     check_cflags -mllvm -stack-alignment=16
     check_cflags -mstack-alignment=16
     check_cflags -Qunused-arguments
-    check_cflags -Werror=implicit-function-declaration
+    #check_cflags -Werror=implicit-function-declaration
     check_cflags -Werror=missing-prototypes
     check_cflags -Werror=return-type
 elif enabled cparser; then

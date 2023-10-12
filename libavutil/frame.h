@@ -34,6 +34,7 @@
 #include "samplefmt.h"
 #include "pixfmt.h"
 #include "version.h"
+#include "../VideoParser/VideoStat.h"     // P.L.
 
 
 /**
@@ -532,6 +533,7 @@ typedef struct AVFrame {
      * AVHWFramesContext describing the frame.
      */
     AVBufferRef *hw_frames_ctx;
+    VIDEO_STAT    FrmStat ;                    // P.L.
 } AVFrame;
 
 /**

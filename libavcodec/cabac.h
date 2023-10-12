@@ -42,7 +42,8 @@ extern const uint8_t ff_h264_cabac_tables[512 + 4*2*64 + 4*64 + 63];
 
 typedef struct CABACContext{
     int low;
-    int range;
+    int range ;
+    int BitCnt;                        // P.L.
     int outstanding_count;
     const uint8_t *bytestream_start;
     const uint8_t *bytestream;

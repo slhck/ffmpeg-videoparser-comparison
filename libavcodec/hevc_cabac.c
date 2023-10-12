@@ -1459,6 +1459,10 @@ void ff_hevc_hls_residual_coding(HEVCContext *s, int x0, int y0,
         }
     }
 
+    CoefStatisticsHEVC( s, log2_trafo_size, (int16_t*)coeffs, c_idx ) ;    //  P.L.
+
+    //_______________________________________ now ready for retransform _____________________________________
+
     if (lc->cu.cu_transquant_bypass_flag) {
         if (explicit_rdpcm_flag || (s->ps.sps->implicit_rdpcm_enabled_flag &&
                                     (pred_mode_intra == 10 || pred_mode_intra == 26))) {
@@ -1519,6 +1523,8 @@ void ff_hevc_hls_mvd_coding(HEVCContext *s, int x0, int y0, int log2_cb_size)
     int x = abs_mvd_greater0_flag_decode(s);
     int y = abs_mvd_greater0_flag_decode(s);
 
+    s->frame->FrmStat.S.CodedMv += (1<<(log2_cb_size-2)) * (1<<(log2_cb_size-2)) ;  // P.L.
+    // s->frame->FrmStat.S.CodedMv ++ ;  // P.L.
     if (x)
         x += abs_mvd_greater1_flag_decode(s);
     if (y)
