@@ -47,6 +47,10 @@
 #include "rectangle.h"
 #include "thread.h"
 
+void InitFrameStatistics264( H264Context *h, H264SliceContext* sl, int CurrBlackBorder ) ;   // P.L.
+int BlackborderDetect( int* BlackLine, int rows, int threshold, int logBlkSize ) ;           // P.L.
+
+
 static const uint8_t field_scan[16+1] = {
     0 + 0 * 4, 0 + 1 * 4, 1 + 0 * 4, 0 + 2 * 4,
     0 + 3 * 4, 1 + 1 * 4, 1 + 2 * 4, 1 + 3 * 4,
@@ -2411,6 +2415,7 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
         }
     }
 
+    InitFrameStatistics264( h, sl, CurrBlackBorder ) ;   // P.L.
     if (h->ps.pps->cabac) {
         /* realign */
         align_get_bits(&sl->gb);
@@ -2582,6 +2587,10 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
 
 finish:
     sl->deblocking_filter = orig_deblock;
+
+    if( h->cur_pic_ptr->f->pict_type == AV_PICTURE_TYPE_I )                                                                                      // P.L.
+      h->cur_pic_ptr->f->FrmStat.BlackBorder = CurrBlackBorder = BlackborderDetect( h->BlackLine, h->mb_height, (int)(0.8*h->mb_width), 4 ) ;  // P.L.
+
     return 0;
 }
 

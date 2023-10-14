@@ -486,6 +486,7 @@ void ff_hevc_luma_mv_merge_mode(HEVCContext *s, int x0, int y0, int nPbW,
     int nPbH2 = nPbH;
     HEVCLocalContext *lc = s->HEVClc;
 
+    memset( mergecand_list, 0, sizeof( MvField )*MRG_MAX_NUM_CANDS ) ;  // P.L.
     if (s->ps.pps->log2_parallel_merge_level > 2 && nCS == 8) {
         singleMCLFlag = 1;
         x0            = lc->cu.x;

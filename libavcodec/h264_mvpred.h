@@ -610,11 +610,13 @@ static void fill_decode_caches(const H264Context *h, H264SliceContext *sl, int m
             int8_t *ref_cache = &sl->ref_cache[list][scan8[0]];
             int8_t *ref       = h->cur_pic.ref_index[list];
             int16_t(*mv_cache)[2] = &sl->mv_cache[list][scan8[0]];
+            int16_t(*mvd_cache)[2] = &sl->mvd_cache[list][scan8[0]];  // P.L.
             int16_t(*mv)[2]       = h->cur_pic.motion_val[list];
             if (!USES_LIST(mb_type, list))
                 continue;
             av_assert2(!(IS_DIRECT(mb_type) && !sl->direct_spatial_mv_pred));
 
+            AV_ZERO64(mvd_cache[0 - 1 * 8]);  // P.L.
             if (USES_LIST(top_type, list)) {
                 const int b_xy = h->mb2b_xy[top_xy] + 3 * b_stride;
                 AV_COPY128(mv_cache[0 - 1 * 8], mv[b_xy + 0]);
@@ -831,6 +833,7 @@ static void av_unused decode_mb_skip(const H264Context *h, H264SliceContext *sl)
     h->cur_pic.qscale_table[mb_xy] = sl->qscale;
     h->slice_table[mb_xy]          = sl->slice_num;
     sl->prev_mb_skipped            = 1;
+    sl->cbp                        = 0 ;   // P.L.  a flaw that does not matter for ffmpeg, but for me, because I intend to use sl->cbp
 }
 
 #endif /* AVCODEC_H264_MVPRED_H */

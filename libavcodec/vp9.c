@@ -33,8 +33,15 @@
 #include "vp9dsp.h"
 #include "libavutil/avassert.h"
 #include "libavutil/pixdesc.h"
+#include "libavutil/thread.h"
 
 #define VP9_SYNCCODE 0x498342
+
+// A.S.
+extern void ModeStatistics (VP9Context *s, VIDEO_STAT *stats, int row, int col, int bytesperpixel );
+void InitFrameStatisticsVP9( AVCodecContext* ctx, VIDEO_STAT* FrmStat, VIDEO_STAT* FrmStatRef, AVPacket* pkt) ;
+extern void FrameStatistics(AVCodecContext* ctx, VIDEO_STAT* stats, VIDEO_STAT* statsRef, AVPacket* pkt);
+static AVMutex stat_mutex;
 
 struct VP9Filter {
     uint8_t level[8 * 8];
@@ -162,6 +169,7 @@ typedef struct VP9Context {
     DECLARE_ALIGNED(32, uint8_t, tmp_uv)[2][64 * 64 * 2];
     uint16_t mvscale[3][2];
     uint8_t mvstep[3][2];
+    int32_t* BlackLine ; // P.L.
 } VP9Context;
 
 static const uint8_t bwh_tab[2][N_BS_SIZES][2] = {
@@ -1341,10 +1349,18 @@ static void fill_mv(VP9Context *s,
                                               s->prob.p.mv_joint);
 
             s->counts.mv_joint[j]++;
+
+            b->CodedMv[(sb == -1)? 0:sb] += (int)(j != MV_JOINT_ZERO) ;      //  P.L.
             if (j >= MV_JOINT_V)
-                mv[0].y += read_mv_component(s, 0, hp);
+            {
+              mvd[0].y = read_mv_component(s, 0, hp);
+              mv[0].y += mvd[0].y ;                           //  P.L.
+            }
             if (j & 1)
-                mv[0].x += read_mv_component(s, 1, hp);
+            {
+              mvd[0].x = read_mv_component( s, 1, hp);
+              mv[0].x += mvd[0].x ;                           //  P.L.
+            }
         }
 
         if (b->comp) {
@@ -1371,10 +1387,18 @@ static void fill_mv(VP9Context *s,
                                                   s->prob.p.mv_joint);
 
                 s->counts.mv_joint[j]++;
+
+                b->CodedMv[(sb == -1)? 0:sb] += (int)(j != MV_JOINT_ZERO) ;  //  P.L.
                 if (j >= MV_JOINT_V)
-                    mv[1].y += read_mv_component(s, 0, hp);
+                {
+                    mvd[1].y = read_mv_component(s, 0, hp);
+                    mv[1].y += mvd[1].y ;                      //  P.L.
+                }
                 if (j & 1)
-                    mv[1].x += read_mv_component(s, 1, hp);
+                {
+                    mvd[1].x += read_mv_component(s, 1, hp);
+                    mv[1].x += mvd[1].x ;                     //  P.L.
+                }
             }
         }
     }
@@ -1952,57 +1976,74 @@ static void decode_mode(AVCodecContext *ctx)
             b->filter = s->s.h.filtermode;
         }
 
+        memset( b->mvd,     0, sizeof( b->mvd     ) ) ;   //  P.L.
+        memset( b->CodedMv, 0, sizeof( b->CodedMv ) ) ;   //  P.L.
         if (b->bs > BS_8x8) {
             int c = inter_mode_ctx_lut[s->above_mode_ctx[col]][s->left_mode_ctx[row7]];
 
             b->mode[0] = vp8_rac_get_tree(&s->c, vp9_inter_mode_tree,
                                           s->prob.p.mv_mode[c]);
             s->counts.mv_mode[c][b->mode[0] - 10]++;
-            fill_mv(s, b->mv[0], b->mode[0], 0);
+            fill_mv(s, b->mv[0], b->mvd[0], b->mode[0], 0);           // P.L. added b->mvd
 
             if (b->bs != BS_8x4) {
                 b->mode[1] = vp8_rac_get_tree(&s->c, vp9_inter_mode_tree,
                                               s->prob.p.mv_mode[c]);
                 s->counts.mv_mode[c][b->mode[1] - 10]++;
-                fill_mv(s, b->mv[1], b->mode[1], 1);
+                fill_mv(s, b->mv[1], b->mvd[1], b->mode[1], 1);       // P.L. added b->mvd
             } else {
                 b->mode[1] = b->mode[0];
-                AV_COPY32(&b->mv[1][0], &b->mv[0][0]);
-                AV_COPY32(&b->mv[1][1], &b->mv[0][1]);
+                AV_COPY32(&b->mv[1][0],  &b->mv[0][0]);
+                AV_COPY32(&b->mv[1][1],  &b->mv[0][1]);
+                AV_COPY32(&b->mvd[1][0], &b->mvd[0][0]);   //  P.L.
+                AV_COPY32(&b->mvd[1][1], &b->mvd[0][1]);   //  P.L.
             }
 
             if (b->bs != BS_4x8) {
                 b->mode[2] = vp8_rac_get_tree(&s->c, vp9_inter_mode_tree,
                                               s->prob.p.mv_mode[c]);
                 s->counts.mv_mode[c][b->mode[2] - 10]++;
-                fill_mv(s, b->mv[2], b->mode[2], 2);
+                fill_mv(s, b->mv[2], b->mvd[2], b->mode[2], 2);
 
                 if (b->bs != BS_8x4) {
                     b->mode[3] = vp8_rac_get_tree(&s->c, vp9_inter_mode_tree,
                                                   s->prob.p.mv_mode[c]);
                     s->counts.mv_mode[c][b->mode[3] - 10]++;
-                    fill_mv(s, b->mv[3], b->mode[3], 3);
+                    fill_mv(s, b->mv[3], b->mvd[3], b->mode[3], 3);
                 } else {
                     b->mode[3] = b->mode[2];
-                    AV_COPY32(&b->mv[3][0], &b->mv[2][0]);
-                    AV_COPY32(&b->mv[3][1], &b->mv[2][1]);
+                    AV_COPY32(&b->mv[3][0],  &b->mv[2][0]);
+                    AV_COPY32(&b->mv[3][1],  &b->mv[2][1]);
+                    AV_COPY32(&b->mvd[3][0], &b->mvd[2][0]);   //  P.L.
+                    AV_COPY32(&b->mvd[3][1], &b->mvd[2][1]);   //  P.L.
                 }
             } else {
                 b->mode[2] = b->mode[0];
-                AV_COPY32(&b->mv[2][0], &b->mv[0][0]);
-                AV_COPY32(&b->mv[2][1], &b->mv[0][1]);
+                AV_COPY32(&b->mv[2][0],  &b->mv[0][0]);
+                AV_COPY32(&b->mv[2][1],  &b->mv[0][1]);
+                AV_COPY32(&b->mvd[2][0], &b->mvd[0][0]);   //  P.L.
+                AV_COPY32(&b->mvd[2][1], &b->mvd[0][1]);   //  P.L.
                 b->mode[3] = b->mode[1];
-                AV_COPY32(&b->mv[3][0], &b->mv[1][0]);
-                AV_COPY32(&b->mv[3][1], &b->mv[1][1]);
+                AV_COPY32(&b->mv[3][0],  &b->mv[1][0]);
+                AV_COPY32(&b->mv[3][1],  &b->mv[1][1]);
+                AV_COPY32(&b->mvd[3][0], &b->mvd[1][0]);   //  P.L.
+                AV_COPY32(&b->mvd[3][1], &b->mvd[1][1]);   //  P.L.
             }
         } else {
-            fill_mv(s, b->mv[0], b->mode[0], -1);
+            fill_mv(s, b->mv[0], b->mvd[0], b->mode[0], -1);
             AV_COPY32(&b->mv[1][0], &b->mv[0][0]);
             AV_COPY32(&b->mv[2][0], &b->mv[0][0]);
             AV_COPY32(&b->mv[3][0], &b->mv[0][0]);
             AV_COPY32(&b->mv[1][1], &b->mv[0][1]);
             AV_COPY32(&b->mv[2][1], &b->mv[0][1]);
             AV_COPY32(&b->mv[3][1], &b->mv[0][1]);
+
+            AV_COPY32(&b->mvd[1][0], &b->mvd[0][0]);   //  P.L.
+            AV_COPY32(&b->mvd[2][0], &b->mvd[0][0]);   //  P.L.
+            AV_COPY32(&b->mvd[3][0], &b->mvd[0][0]);   //  P.L.
+            AV_COPY32(&b->mvd[1][1], &b->mvd[0][1]);   //  P.L.
+            AV_COPY32(&b->mvd[2][1], &b->mvd[0][1]);   //  P.L.
+            AV_COPY32(&b->mvd[3][1], &b->mvd[0][1]);   //  P.L.
         }
 
         vref = b->ref[b->comp ? s->s.h.signbias[s->s.h.varcompref[0]] : 0];
@@ -3198,6 +3239,8 @@ static void decode_b(AVCodecContext *ctx, int row, int col,
     int emu[2];
     AVFrame *f = s->s.frames[CUR_FRAME].tf.f;
 
+    s->s.frames[0].tf.f->FrmStat.S.BlkCnt4x4 += 256 >> ( (((bs -(bp==3)) / 3) << 1) + ((bp == 1) || (bp == 2))) ;  // P.L.
+
     s->row = row;
     s->row7 = row & 7;
     s->col = col;
@@ -3263,6 +3306,17 @@ static void decode_b(AVCodecContext *ctx, int row, int col,
             case 8: SPLAT_ZERO_YUV(left, nnz_ctx, row7, 8, v); break;
             }
         }
+
+        // A.S.
+#if HAVE_THREADS
+        ff_mutex_lock(&stat_mutex);
+#endif
+
+        ModeStatistics(s, &f->FrmStat, row, col, bytesperpixel );    // A.S.
+
+#if HAVE_THREADS
+        ff_mutex_unlock(&stat_mutex);
+#endif
 
         if (s->pass == 1) {
             s->b++;
@@ -3439,12 +3493,14 @@ static void decode_sb(AVCodecContext *ctx, int row, int col, struct VP9Filter *l
             }
         } else if (vp56_rac_get_prob_branchy(&s->c, p[1])) {
             bp = PARTITION_SPLIT;
+            s->s.frames[0].tf.f->FrmStat.S.BlkCnt4x4 += 2 * (1 << (3-bl)) *  (1 << (3-bl)) ;   // P.L.
             decode_sb(ctx, row, col, lflvl, yoff, uvoff, bl + 1);
             decode_sb(ctx, row, col + hbs, lflvl,
                       yoff + 8 * hbs * bytesperpixel,
                       uvoff + (8 * hbs * bytesperpixel >> s->ss_h), bl + 1);
         } else {
             bp = PARTITION_H;
+            s->s.frames[0].tf.f->FrmStat.S.BlkCnt4x4 += ((1 << (4 - bl))  *  (1 << (4 - bl))) >> 1  ;  // P.L.
             decode_b(ctx, row, col, lflvl, yoff, uvoff, bl, bp);
         }
     } else if (row + hbs < s->rows) { // FIXME why not <=?
@@ -3968,6 +4024,10 @@ static av_cold int vp9_decode_free(AVCodecContext *ctx)
     av_freep(&s->c_b);
     s->c_b_size = 0;
 
+#if HAVE_THREADS
+    ff_mutex_destroy(&stat_mutex); // A.S.
+#endif
+
     return 0;
 }
 
@@ -4042,6 +4102,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
         vp9_unref_frame(ctx, &s->s.frames[REF_FRAME_SEGMAP]);
     }
 
+   InitFrameStatisticsVP9( ctx, &(s->s.frames[0].tf.f->FrmStat), &((AVFrame *)frame)->FrmStat,  pkt ) ;             // P.L.
     // ref frame setup
     for (i = 0; i < 8; i++) {
         if (s->next_refs[i].f->buf[0])
@@ -4240,6 +4301,9 @@ FF_ENABLE_DEPRECATION_WARNINGS
     ff_thread_report_progress(&s->s.frames[CUR_FRAME].tf, INT_MAX, 0);
 
 finish:
+    // A.S. - Finalize stats, Copy stats to ctx, Clear stats
+    FrameStatistics(ctx, &s->s.frames[0].tf.f->FrmStat, &((AVFrame *)frame)->FrmStat, pkt);
+
     // ref frame setup
     for (i = 0; i < 8; i++) {
         if (s->s.refs[i].f->buf[0])
@@ -4254,6 +4318,9 @@ finish:
             return res;
         *got_frame = 1;
     }
+    else
+      ((AVFrame *)frame)->FrmStat.IsHidden = 1 ;          // P.L.
+
 
     return pkt->size;
 }
@@ -4302,6 +4369,10 @@ static av_cold int vp9_decode_init(AVCodecContext *ctx)
     ctx->internal->allocate_progress = 1;
     s->last_bpp = 0;
     s->s.h.filter.sharpness = -1;
+
+#if HAVE_THREADS
+    ff_mutex_init(&stat_mutex, NULL); // A.S.
+#endif
 
     return init_frames(ctx);
 }
