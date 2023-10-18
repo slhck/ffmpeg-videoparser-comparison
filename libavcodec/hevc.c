@@ -949,6 +949,8 @@ static int hls_transform_unit(HEVCContext *s, int x0, int y0,
     const int log2_trafo_size_c = log2_trafo_size - s->ps.sps->hshift[1];
     int i;
 
+    s->HEVClc->cc.BitCnt = 0 ;    // P.L.
+
     if (lc->cu.pred_mode == MODE_INTRA) {
         int trafo_size = 1 << log2_trafo_size;
         ff_hevc_set_neighbour_available(s, x0, y0, trafo_size, trafo_size);
@@ -1142,7 +1144,7 @@ static int hls_transform_unit(HEVCContext *s, int x0, int y0,
             }
         }
     }
-
+    s->frame->FrmStat.S.BitCntCoefs += s->HEVClc->cc.BitCnt ;               // P.L.
     return 0;
 }
 
@@ -1262,6 +1264,9 @@ do {                                                                            
         ret = hls_transform_unit(s, x0, y0, xBase, yBase, cb_xBase, cb_yBase,
                                  log2_cb_size, log2_trafo_size,
                                  blk_idx, cbf_luma, cbf_cb, cbf_cr);
+
+        TransfStatHEVC( s, log2_trafo_size, cbf_luma, y0, x0 ) ;               // P.L.
+
         if (ret < 0)
             return ret;
         // TODO: store cbf_luma somewhere else
@@ -1675,12 +1680,14 @@ static void hevc_luma_mv_mvp_mode(HEVCContext *s, int x0, int y0, int nPbW,
             mv->ref_idx[0]= ff_hevc_ref_idx_lx_decode(s, s->sh.nb_refs[L0]);
 
         mv->pred_flag = PF_L0;
-        ff_hevc_hls_mvd_coding(s, x0, y0, 0);
+        ff_hevc_hls_mvd_coding(s, x0, y0, log2_cb_size);    // P.L.: lst parameter changed from "0"
         mvp_flag = ff_hevc_mvp_lx_flag_decode(s);
         ff_hevc_luma_mv_mvp_mode(s, x0, y0, nPbW, nPbH, log2_cb_size,
                                  part_idx, merge_idx, mv, mvp_flag, 0);
         mv->mv[0].x += lc->pu.mvd.x;
         mv->mv[0].y += lc->pu.mvd.y;
+        mv->mvd[0].x = lc->pu.mvd.x;  //  P.L.
+        mv->mvd[0].y = lc->pu.mvd.y;  //  P.L.
     }
 
     if (inter_pred_idc != PRED_L0) {
@@ -1690,7 +1697,7 @@ static void hevc_luma_mv_mvp_mode(HEVCContext *s, int x0, int y0, int nPbW,
         if (s->sh.mvd_l1_zero_flag == 1 && inter_pred_idc == PRED_BI) {
             AV_ZERO32(&lc->pu.mvd);
         } else {
-            ff_hevc_hls_mvd_coding(s, x0, y0, 1);
+            ff_hevc_hls_mvd_coding(s, x0, y0, log2_cb_size);    // P.L.: lst parameter changed from "0"
         }
 
         mv->pred_flag += PF_L1;
@@ -1699,6 +1706,8 @@ static void hevc_luma_mv_mvp_mode(HEVCContext *s, int x0, int y0, int nPbW,
                                  part_idx, merge_idx, mv, mvp_flag, 1);
         mv->mv[1].x += lc->pu.mvd.x;
         mv->mv[1].y += lc->pu.mvd.y;
+        mv->mvd[1].x = lc->pu.mvd.x;  //  P.L.
+        mv->mvd[1].y = lc->pu.mvd.y;  //  P.L.
     }
 }
 
@@ -1730,6 +1739,7 @@ static void hls_prediction_unit(HEVCContext *s, int x0, int y0,
 
     int skip_flag = SAMPLE_CTB(s->skip_flag, x_cb, y_cb);
 
+    s->HEVClc->cc.BitCnt = 0 ;    // P.L.
     if (!skip_flag)
         lc->pu.merge_flag = ff_hevc_merge_flag_decode(s);
 
@@ -1745,6 +1755,7 @@ static void hls_prediction_unit(HEVCContext *s, int x0, int y0,
         hevc_luma_mv_mvp_mode(s, x0, y0, nPbW, nPbH, log2_cb_size,
                               partIdx, merge_idx, &current_mv);
     }
+   s->frame->FrmStat.S.BitCntMotion += s->HEVClc->cc.BitCnt ;  // P.L.
 
     x_pu = x0 >> s->ps.sps->log2_min_pu_size;
     y_pu = y0 >> s->ps.sps->log2_min_pu_size;
@@ -2068,6 +2079,7 @@ static int hls_coding_unit(HEVCContext *s, int x0, int y0, int log2_cb_size)
 
         if (!s->sh.disable_deblocking_filter_flag)
             ff_hevc_deblocking_boundary_strengths(s, x0, y0, log2_cb_size);
+        s->frame->FrmStat.TrShapes[0] += (1 << (log2_cb_size-2)) * (1 << (log2_cb_size-2)) ;  // P.L.
     } else {
         int pcm_flag = 0;
 
@@ -2154,6 +2166,7 @@ static int hls_coding_unit(HEVCContext *s, int x0, int y0, int log2_cb_size)
                 if (ret < 0)
                     return ret;
             } else {
+              s->frame->FrmStat.TrShapes[0] += (1 << (log2_cb_size-2)) * (1 << (log2_cb_size-2)) ;  // P.L.
                 if (!s->sh.disable_deblocking_filter_flag)
                     ff_hevc_deblocking_boundary_strengths(s, x0, y0, log2_cb_size);
             }
@@ -2168,6 +2181,8 @@ static int hls_coding_unit(HEVCContext *s, int x0, int y0, int log2_cb_size)
         memset(&s->qp_y_tab[x], lc->qp_y, length);
         x += min_cb_width;
     }
+
+    MbStatistcsHEVC( s, lc, y0, x0, log2_cb_size ) ;        // P.L.
 
     if(((x0 + (1<<log2_cb_size)) & qp_block_mask) == 0 &&
        ((y0 + (1<<log2_cb_size)) & qp_block_mask) == 0) {
@@ -2246,6 +2261,7 @@ static int hls_coding_quadtree(HEVCContext *s, int x0, int y0,
             return 0;
     } else {
         ret = hls_coding_unit(s, x0, y0, log2_cb_size);
+        s->frame->FrmStat.S.PU_Stat[log2_cb_size][lc->cu.part_mode] ++ ;   //  P.L.
         if (ret < 0)
             return ret;
         if ((!((x0 + cb_size) %
@@ -2335,6 +2351,7 @@ static int hls_decode_entry(AVCodecContext *avctxt, void *isFilterThread)
         }
     }
 
+    InitStatisticsHEVC(s) ;  //  P.L.
     while (more_data && ctb_addr_ts < s->ps.sps->ctb_size) {
         int ctb_addr_rs = s->ps.pps->ctb_addr_ts_to_rs[ctb_addr_ts];
 
@@ -2351,6 +2368,7 @@ static int hls_decode_entry(AVCodecContext *avctxt, void *isFilterThread)
         s->filter_slice_edges[ctb_addr_rs]  = s->sh.slice_loop_filter_across_slices_enabled_flag;
 
         more_data = hls_coding_quadtree(s, x_ctb, y_ctb, s->ps.sps->log2_ctb_size, 0);
+        s->frame->FrmStat.S.TreeStat++ ;  //  P.L.
         if (more_data < 0) {
             s->tab_slice_address[ctb_addr_rs] = -1;
             return more_data;
@@ -2366,6 +2384,7 @@ static int hls_decode_entry(AVCodecContext *avctxt, void *isFilterThread)
         y_ctb + ctb_size >= s->ps.sps->height)
         ff_hevc_hls_filter(s, x_ctb, y_ctb, ctb_size);
 
+    s->frame->FrmStat.BlackBorder = CurrBlackBorder = BlackBorderEstimationHEVC( s->cbf_luma, s->ps.sps, s->frame->pict_type, CurrBlackBorder ) ;    // P.L.
     return ctb_addr_ts;
 }
 
@@ -3024,6 +3043,8 @@ static int hevc_decode_frame(AVCodecContext *avctx, void *data, int *got_output,
         s->is_decoded = 0;
     }
 
+    if( s->frame->data[0] == s->output_frame->data[0] )                                 // P.L.
+      memcpy( &s->output_frame->FrmStat, &s->frame->FrmStat, sizeof( VIDEO_STAT ) ) ;   // P.L.
     if (s->output_frame->buf[0]) {
         av_frame_move_ref(data, s->output_frame);
         *got_output = 1;

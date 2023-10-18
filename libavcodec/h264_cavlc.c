@@ -709,6 +709,7 @@ int ff_h264_decode_mb_cavlc(const H264Context *h, H264SliceContext *sl)
     const int pixel_shift = h->pixel_shift;
 
     mb_xy = sl->mb_xy = sl->mb_x + sl->mb_y*h->mb_stride;
+    memset( sl->mvd_cache, 0, sizeof( sl->mvd_cache ) ) ;      // P.L.
 
     ff_tlog(h->avctx, "pic:%d mb:%d/%d\n", h->poc.frame_num, sl->mb_x, sl->mb_y);
     cbp = 0; /* avoid warning. FIXME: find a solution without slowing
@@ -913,12 +914,15 @@ decode_intra_mb:
                     const int sub_mb_type= sl->sub_mb_type[i];
                     const int block_width= (sub_mb_type & (MB_TYPE_16x16|MB_TYPE_16x8)) ? 2 : 1;
                     for(j=0; j<sub_partition_count[i]; j++){
-                        int mx, my;
+                        int mx, my, mdx, mdy ;                 // P.L. added mxd, myd
                         const int index= 4*i + block_width*j;
                         int16_t (* mv_cache)[2]= &sl->mv_cache[list][ scan8[index] ];
+                        uint8_t (* mvd_cache)[2]= &sl->mvd_cache[list][scan8[index]];  // P.L.
                         pred_motion(h, sl, index, block_width, list, sl->ref_cache[list][ scan8[index] ], &mx, &my);
-                        mx += get_se_golomb(&sl->gb);
-                        my += get_se_golomb(&sl->gb);
+                        mdx = get_se_golomb( &sl->gb );
+                        mdy = get_se_golomb( &sl->gb );
+                        mx += mdx;
+                        my += mdy;
                         ff_tlog(h->avctx, "final mv:%d %d\n", mx, my);
 
                         if(IS_SUB_8X8(sub_mb_type)){
@@ -926,15 +930,23 @@ decode_intra_mb:
                             mv_cache[ 8 ][0]= mv_cache[ 9 ][0]= mx;
                             mv_cache[ 1 ][1]=
                             mv_cache[ 8 ][1]= mv_cache[ 9 ][1]= my;
+                            mvd_cache[1][0] = mvd_cache[8][0] = mvd_cache[9][0] = mdx;    // P.L.
+                            mvd_cache[1][1] = mvd_cache[8][1] = mvd_cache[9][1] = mdy;    // P.L.
                         }else if(IS_SUB_8X4(sub_mb_type)){
                             mv_cache[ 1 ][0]= mx;
                             mv_cache[ 1 ][1]= my;
+                            mvd_cache[1][0] = mdx;    // P.L.
+                            mvd_cache[1][1] = mdy;    // P.L.
                         }else if(IS_SUB_4X8(sub_mb_type)){
                             mv_cache[ 8 ][0]= mx;
                             mv_cache[ 8 ][1]= my;
+                            mvd_cache[8][0] = mdx;    // P.L.
+                            mvd_cache[8][1] = mdy;    // P.L.
                         }
                         mv_cache[ 0 ][0]= mx;
                         mv_cache[ 0 ][1]= my;
+                        mvd_cache[0][0] = mdx;      // P.L.
+                        mvd_cache[0][1] = mdy;      // P.L.
                     }
                 }else{
                     uint32_t *p= (uint32_t *)&sl->mv_cache[list][ scan8[4*i] ][0];
@@ -947,7 +959,7 @@ decode_intra_mb:
         ff_h264_pred_direct_motion(h, sl, &mb_type);
         dct8x8_allowed &= h->ps.sps->direct_8x8_inference_flag;
     }else{
-        int list, mx, my, i;
+        int list, mx, my, mdx, mdy, i;
          //FIXME we should set ref_idx_l? to 0 if we use that later ...
         if(IS_16X16(mb_type)){
             for (list = 0; list < sl->list_count; list++) {
@@ -971,11 +983,14 @@ decode_intra_mb:
             for (list = 0; list < sl->list_count; list++) {
                 if(IS_DIR(mb_type, 0, list)){
                     pred_motion(h, sl, 0, 4, list, sl->ref_cache[list][ scan8[0] ], &mx, &my);
-                    mx += get_se_golomb(&sl->gb);
-                    my += get_se_golomb(&sl->gb);
+                    mdx = get_se_golomb( &sl->gb );
+                    mdy = get_se_golomb( &sl->gb );
+                    mx += mdx ;
+                    my += mdy ;
                     ff_tlog(h->avctx, "final mv:%d %d\n", mx, my);
 
                     fill_rectangle(sl->mv_cache[list][ scan8[0] ], 4, 4, 8, pack16to32(mx,my), 4);
+                    fill_rectangle( sl->mvd_cache[list][scan8[0]], 4, 4, 8, pack8to16( mdx, mdy ), 2 );
                 }
             }
         }
@@ -1003,17 +1018,21 @@ decode_intra_mb:
             }
             for (list = 0; list < sl->list_count; list++) {
                 for(i=0; i<2; i++){
-                    unsigned int val;
+                    unsigned int val, valp;
                     if(IS_DIR(mb_type, i, list)){
                         pred_16x8_motion(h, sl, 8*i, list, sl->ref_cache[list][scan8[0] + 16*i], &mx, &my);
-                        mx += get_se_golomb(&sl->gb);
-                        my += get_se_golomb(&sl->gb);
+                        mdx = get_se_golomb( &sl->gb );
+                        mdy = get_se_golomb( &sl->gb );
+                        mx += mdx;
+                        my += mdy;
                         ff_tlog(h->avctx, "final mv:%d %d\n", mx, my);
 
                         val= pack16to32(mx,my);
+                        valp = pack8to16( mdx, mdy );
                     }else
-                        val=0;
+                        val = valp = 0;
                     fill_rectangle(sl->mv_cache[list][ scan8[0] + 16*i ], 4, 2, 8, val, 4);
+                    fill_rectangle( sl->mvd_cache[list][scan8[0] + 16 * i], 4, 2, 8, valp, 2 );
                 }
             }
         }else{
